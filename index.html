@@ -6,12 +6,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0a0a14" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%9F%3C/text%3E%3C/svg%3E" />
   <title>Mosquito Life - 蚊の一生</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
   <div id="app">
     <canvas id="game-canvas"></canvas>
+
+    <!-- Full-screen effect layers -->
+    <div id="fx-vignette" class="fx-layer"></div>
+    <div id="fx-damage" class="fx-layer fx-damage"></div>
+    <div id="fx-feed" class="fx-layer fx-feed"></div>
 
     <!-- ===== HUD (in-game) ===== -->
     <div id="hud" class="hidden">
@@ -47,6 +53,15 @@
         <div id="alert-banner" class="alert-banner hidden"></div>
         <div id="toast" class="toast hidden"></div>
       </div>
+
+      <!-- Mission tracker -->
+      <div class="mission-box" id="mission-box">
+        <div class="mission-title">🎯 ミッション</div>
+        <div class="mission-list" id="mission-list"></div>
+      </div>
+
+      <!-- Minimap -->
+      <canvas id="minimap" width="150" height="150"></canvas>
 
       <!-- Bottom-center: danger meter + context action -->
       <div class="hud-bottom-center">
