@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0a0a14" />
+  <title>Mosquito Life - 蚊の一生</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- ===== HUD (in-game) ===== -->
+    <div id="hud" class="hidden">
+      <!-- Top-left: stats -->
+      <div class="hud-top-left">
+        <div class="stat-bar" id="blood-bar-wrap">
+          <span class="stat-label">🩸 満腹</span>
+          <div class="bar"><div class="bar-fill blood" id="blood-fill"></div></div>
+        </div>
+        <div class="stat-bar" id="stamina-bar-wrap">
+          <span class="stat-label">⚡ スタミナ</span>
+          <div class="bar"><div class="bar-fill stamina" id="stamina-fill"></div></div>
+        </div>
+        <div class="stat-bar" id="health-bar-wrap">
+          <span class="stat-label">❤️ HP</span>
+          <div class="bar"><div class="bar-fill health" id="health-fill"></div></div>
+        </div>
+      </div>
+
+      <!-- Top-right: score / time -->
+      <div class="hud-top-right">
+        <div class="score-box">
+          <div class="score-label">SCORE</div>
+          <div class="score-value" id="score-value">0</div>
+        </div>
+        <div class="time-box">
+          <span id="time-icon">🌙</span> <span id="time-value">夜</span>
+        </div>
+      </div>
+
+      <!-- Center: alert / status messages -->
+      <div class="hud-center">
+        <div id="alert-banner" class="alert-banner hidden"></div>
+        <div id="toast" class="toast hidden"></div>
+      </div>
+
+      <!-- Bottom-center: danger meter + context action -->
+      <div class="hud-bottom-center">
+        <div class="danger-meter" id="danger-meter">
+          <span class="danger-label">警戒度</span>
+          <div class="danger-track"><div class="danger-fill" id="danger-fill"></div></div>
+        </div>
+        <div id="context-hint" class="context-hint hidden"></div>
+      </div>
+    </div>
+
+    <!-- ===== Mobile touch controls ===== -->
+    <div id="touch-controls" class="hidden">
+      <div id="joystick" class="joystick">
+        <div class="joystick-base"></div>
+        <div class="joystick-knob" id="joystick-knob"></div>
+      </div>
+      <div class="action-buttons">
+        <button class="abtn" id="btn-up" aria-label="上昇">▲</button>
+        <button class="abtn" id="btn-down" aria-label="下降">▼</button>
+        <button class="abtn primary" id="btn-action" aria-label="吸血/着地">🩸</button>
+        <button class="abtn" id="btn-boost" aria-label="ダッシュ">💨</button>
+      </div>
+    </div>
+
+    <!-- ===== Title screen ===== -->
+    <div id="title-screen" class="overlay">
+      <div class="title-content">
+        <div class="title-bug">🦟</div>
+        <h1 class="game-title">MOSQUITO<span>LIFE</span></h1>
+        <p class="subtitle">蚊の一生 — 吸って、隠れて、生き延びろ</p>
+        <button id="start-btn" class="big-btn">▶ ゲーム開始</button>
+        <button id="howto-btn" class="ghost-btn">遊び方</button>
+        <div class="highscore">ハイスコア: <span id="title-highscore">0</span></div>
+      </div>
+    </div>
+
+    <!-- ===== How to play ===== -->
+    <div id="howto-screen" class="overlay hidden">
+      <div class="panel">
+        <h2>遊び方</h2>
+        <div class="howto-grid">
+          <div class="howto-col">
+            <h3>🖥️ PC操作</h3>
+            <ul>
+              <li><b>WASD / 矢印</b> … 移動（前後左右）</li>
+              <li><b>マウス</b> … 視点・飛ぶ向き</li>
+              <li><b>Space</b> … 上昇 / <b>Shift</b> … 下降</li>
+              <li><b>左クリック / E</b> … 吸血・着地・離陸</li>
+              <li><b>Ctrl</b> … ダッシュ（スタミナ消費）</li>
+            </ul>
+          </div>
+          <div class="howto-col">
+            <h3>📱 スマホ操作</h3>
+            <ul>
+              <li><b>左ジョイスティック</b> … 移動・向き</li>
+              <li><b>▲▼</b> … 上昇 / 下降</li>
+              <li><b>🩸ボタン</b> … 吸血・着地・離陸</li>
+              <li><b>💨ボタン</b> … ダッシュ</li>
+              <li>端末を<b>横向き</b>にしてね</li>
+            </ul>
+          </div>
+        </div>
+        <div class="howto-tips">
+          <h3>💡 コツ</h3>
+          <ul>
+            <li>人の肌に<b>着地して吸血</b>すると満腹ゲージが回復＆スコアUP。</li>
+            <li>吸いすぎたり羽音が大きいと<b>気づかれて叩かれる</b>。叩かれたらアウト！</li>
+            <li><b>服や壁、家具に止まって休む</b>とスタミナ回復＆警戒度ダウン。</li>
+            <li>動きが速いほど羽音が大きく、バレやすい。ゆっくり近づこう。</li>
+            <li>満腹だと産卵してボーナス。長く生き延びてスコアを稼ごう。</li>
+          </ul>
+        </div>
+        <button id="howto-back" class="big-btn">戻る</button>
+      </div>
+    </div>
+
+    <!-- ===== Game over ===== -->
+    <div id="gameover-screen" class="overlay hidden">
+      <div class="panel gameover">
+        <h2 id="gameover-title">☠️ 叩き潰された！</h2>
+        <p id="gameover-reason">人間に気づかれて叩かれてしまった…</p>
+        <div class="result-stats">
+          <div><span class="rs-label">スコア</span><span class="rs-val" id="final-score">0</span></div>
+          <div><span class="rs-label">吸血回数</span><span class="rs-val" id="final-bites">0</span></div>
+          <div><span class="rs-label">生存時間</span><span class="rs-val" id="final-time">0s</span></div>
+          <div><span class="rs-label">産卵</span><span class="rs-val" id="final-eggs">0</span></div>
+        </div>
+        <div class="highscore" id="gameover-highscore"></div>
+        <button id="retry-btn" class="big-btn">🔄 もう一度</button>
+        <button id="totitle-btn" class="ghost-btn">タイトルへ</button>
+      </div>
+    </div>
+
+    <!-- ===== Loading ===== -->
+    <div id="loading-screen" class="overlay">
+      <div class="loading-content">
+        <div class="title-bug spin">🦟</div>
+        <p>読み込み中…</p>
+      </div>
+    </div>
+
+    <!-- Orientation hint for phones in portrait -->
+    <div id="rotate-hint" class="rotate-hint hidden">
+      <div class="rotate-icon">📱↻</div>
+      <p>端末を横向きにしてください</p>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
