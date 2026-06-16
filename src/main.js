@@ -173,10 +173,11 @@ class Game {
 
     if (this.state === 'playing') {
       this.update(dt);
-    } else {
+    } else if (this.state === 'title') {
       // idle camera drift on title
       this._idleCamera(dt);
     }
+    // on gameover: freeze scene, keep last camera
     this.renderer.render(this.scene, this.camera);
   }
 
