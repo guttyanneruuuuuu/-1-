@@ -5,6 +5,8 @@ import { Mosquito } from './mosquito.js';
 import { InputManager } from './input.js';
 import { AudioManager } from './audio.js';
 import { UI } from './ui.js';
+import { Cat } from './cat.js';
+import { MosquitoCoil, MissionManager } from './hazards.js';
 
 // ===================== Constants =====================
 const CFG = {
@@ -46,6 +48,13 @@ class Game {
     this.mosquito = new Mosquito(this.scene);
     this.humans = [];
     this._spawnHumans();
+
+    // predator + hazards + missions
+    this.cat = new Cat(this.scene, new THREE.Vector3(-7, 0, 4));
+    this.coil = new MosquitoCoil(this.scene, new THREE.Vector3(5, 0, -5));
+    this.missions = new MissionManager();
+    this.minimap = document.getElementById('minimap');
+    this.minimapCtx = this.minimap.getContext('2d');
 
     this._resize();
     window.addEventListener('resize', () => this._resize());
@@ -98,8 +107,16 @@ class Game {
     this.score = 0;
     this.bites = 0;
     this.eggs = 0;
+    this.hides = 0;
+    this.maxedBlood = 0;
     this.survival = 0;
     this.danger = 0;
+    this.dayTime = 0;          // 0..1 night->day cycle progress
+
+    this.missions.reset();
+    this.coil.active = true;
+    this._sprayTimer = 18 + Math.random()*12;
+    this.spray = null;
 
     // reset mosquito
     const mq = this.mosquito;
@@ -112,6 +129,9 @@ class Game {
 
     // reset humans awareness
     for (const h of this.humans) { h.awareness = 0; h.itch = 0; h.state='idle'; }
+    // reset cat
+    this.cat.state = 'sleep'; this.cat.timer = 3; this.cat.group.position.set(-7,0,4);
+    this._refreshMissions();
 
     this.ui.showTitle(false);
     this.ui.showHowto(false);
@@ -166,6 +186,8 @@ class Game {
     this.camera.position.set(Math.cos(this._idleT)*r, 5 + Math.sin(this._idleT*0.5)*1.5, Math.sin(this._idleT)*r);
     this.camera.lookAt(0, 3, 0);
     for (const h of this.humans) h.update(dt, { pos: new THREE.Vector3(0,99,0), speed:0, isLanded:true, feedingOn:null }, this.world);
+    this.cat.update(dt, { pos: new THREE.Vector3(0,99,0), speed:0, isLanded:true });
+    this.coil.update(dt, this.camera);
   }
 
   update(dt) {
@@ -225,6 +247,7 @@ class Game {
     }
 
     if (beingSwatted) {
+      this.ui.flashDamage(1.0);
       this.health -= 100; // a clean hit is lethal
       if (this.health <= 0) {
         this.gameOver('人間に気づかれて叩き潰された…', '☠️ 叩き潰された！');
@@ -232,16 +255,93 @@ class Game {
       }
     }
 
+    // ---------- Cat predator ----------
+    const catRes = this.cat.update(dt, {
+      pos: mq.group.position, speed: mq.speed, isLanded: mq.isLanded
+    });
+    if (catRes.pounced) {
+      this.audio.slap();
+      this.ui.alert('🐱 ネコの猫パンチ！');
+      if (catRes.hit) {
+        this.health = 0;
+        this.gameOver('ネコに猫パンチで叩き落とされた…', '🐱 ネコに捕まった！');
+        return;
+      } else {
+        this.ui.toast('ネコをかわした！', 1200);
+        if (mq.isLanded) this._takeOff(mq);
+      }
+    }
+    if (this.cat.state === 'alert') this.danger = Math.min(100, this.danger + 12);
+
+    // ---------- Mosquito coil + insecticide spray (HP hazards) ----------
+    this.coil.update(dt, this.camera);
+    let hazardDmg = this.coil.damageAt(mq.group.position);
+    // periodic spray event
+    this._sprayTimer -= dt;
+    if (this._sprayTimer <= 0 && !this.spray) {
+      // a wandering human sprays toward the mosquito's area
+      const src = this._nearestHuman(mq.group.position);
+      if (src && src.awareness > 20) {
+        this.spray = { pos: mq.group.position.clone(), radius: 3.2, life: 5 };
+        this.audio.alert();
+        this.ui.toast('💨 殺虫剤スプレー！その場から逃げろ！', 2200);
+        this._sprayTimer = 16 + Math.random()*12;
+      } else {
+        this._sprayTimer = 5;
+      }
+    }
+    if (this.spray) {
+      this.spray.life -= dt;
+      const d = mq.group.position.distanceTo(this.spray.pos);
+      if (d < this.spray.radius) hazardDmg += (1 - d/this.spray.radius) * 18;
+      if (this.spray.life <= 0) this.spray = null;
+    }
+    if (hazardDmg > 0) {
+      this.health -= hazardDmg * dt;
+      this.ui.alert('☠️ 煙が苦しい！');
+      this.ui.flashDamage(0.4);
+      this.danger = Math.min(100, this.danger + 20);
+      if (this.health <= 0) {
+        this.gameOver('煙にやられて力尽きた…', '☠️ 煙に巻かれた');
+        return;
+      }
+    }
+
+    // ---------- Day/night cycle (raises difficulty over time) ----------
+    this.dayTime = Math.min(1, this.survival / 180); // fully "day" after 3 min
+    this._applyDayNight();
+
     if (this.danger > 50) {
       this.ui.alert(this.danger > 80 ? '⚠️ 超危険！逃げろ！' : '⚠️ 警戒されてる！');
-    } else {
+    } else if (hazardDmg <= 0 && this.cat.state !== 'alert') {
       this.ui.alert(null);
+    }
+
+    // ---------- Missions ----------
+    const mres = this.missions.update({
+      bites: this.bites, survival: this.survival, eggs: this.eggs,
+      hides: this.hides, maxedBlood: this.maxedBlood
+    });
+    if (mres.justCompleted) {
+      this.score += 100;
+      this.audio.egg();
+      this.ui.toast('✅ ミッション達成！ +100', 1500);
+      this._refreshMissions();
+    }
+    if (mres.waveCleared) {
+      this.score += 300;
+      this.audio.feed();
+      this.ui.toast(`🌊 WAVE ${mres.wave} 突入！ +300 (難易度UP)`, 2400);
+      this._escalate(mres.wave);
+      this._refreshMissions();
     }
 
     // ---------- Feeding ----------
     if (mq.feedingOn && mq.feedingSpot) {
       this._feed(dt, mq);
     }
+    if (this.blood >= CFG.MAX_BLOOD) this.maxedBlood = 1;
+    this.ui.feedActive(!!(mq.feedingOn && mq.feedingSpot));
 
     // ---------- Visuals ----------
     const fullness = this.blood / CFG.MAX_BLOOD;
@@ -263,6 +363,78 @@ class Game {
       score: Math.floor(this.score),
       danger: this.danger
     });
+    this.ui.setVignetteDanger(this.danger > 60 || hazardDmg > 0);
+    this.ui.setTimeOfDay(this.dayTime);
+    this._drawMinimap();
+  }
+
+  _nearestHuman(p) {
+    let best = null, bd = Infinity;
+    for (const h of this.humans) {
+      const d = p.distanceTo(h.group.position);
+      if (d < bd) { bd = d; best = h; }
+    }
+    return best;
+  }
+
+  _applyDayNight() {
+    // brighten ambient & make humans more alert as it becomes "day"
+    const t = this.dayTime;
+    const bg = new THREE.Color(0x0c0e1a).lerp(new THREE.Color(0x2a3050), t);
+    this.scene.background.copy(bg);
+    if (this.scene.fog) this.scene.fog.color.copy(bg);
+  }
+
+  _escalate(wave) {
+    // ramp human alertness & speed each wave
+    for (const h of this.humans) {
+      h.alertness += 0.18;
+      h.speed += 0.12;
+    }
+    // spray events more frequent
+    this._sprayTimer = Math.max(6, this._sprayTimer - 2);
+  }
+
+  _refreshMissions() {
+    const list = this.missions.describe({
+      bites: this.bites, survival: this.survival, eggs: this.eggs,
+      hides: this.hides, maxedBlood: this.maxedBlood
+    });
+    this.ui.setMissions(list, this.missions.wave);
+  }
+
+  _drawMinimap() {
+    const ctx = this.minimapCtx;
+    const W = this.minimap.width, H = this.minimap.height;
+    const R = this.world.ROOM;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = 'rgba(20,24,40,0.6)';
+    ctx.fillRect(0,0,W,H);
+    const toX = (x) => (x + R.w/2) / R.w * W;
+    const toY = (z) => (z + R.d/2) / R.d * H;
+    // humans
+    for (const h of this.humans) {
+      ctx.fillStyle = h.awareness > 50 ? '#ff5570' : '#ffd166';
+      ctx.beginPath(); ctx.arc(toX(h.group.position.x), toY(h.group.position.z), 4, 0, Math.PI*2); ctx.fill();
+    }
+    // cat
+    ctx.fillStyle = this.cat.state==='alert' ? '#ff8f1f' : '#9aa0b8';
+    ctx.beginPath(); ctx.arc(toX(this.cat.group.position.x), toY(this.cat.group.position.z), 4, 0, Math.PI*2); ctx.fill();
+    // coil hazard
+    if (this.coil.active) {
+      ctx.strokeStyle = 'rgba(255,120,80,0.5)';
+      ctx.beginPath(); ctx.arc(toX(this.coil.pos.x), toY(this.coil.pos.z), this.coil.radius/R.w*W, 0, Math.PI*2); ctx.stroke();
+    }
+    // mosquito (player)
+    const mp = this.mosquito.group.position;
+    ctx.fillStyle = '#74e0ff';
+    ctx.beginPath(); ctx.arc(toX(mp.x), toY(mp.z), 5, 0, Math.PI*2); ctx.fill();
+    // heading triangle
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(toX(mp.x), toY(mp.z));
+    ctx.lineTo(toX(mp.x)+Math.sin(this.camYaw)*9, toY(mp.z)+Math.cos(this.camYaw)*9);
+    ctx.stroke();
   }
 
   _updateFlying(dt, ctrl, mq) {
@@ -353,7 +525,7 @@ class Game {
       mq.landedOn = { type: best.spot.type };
       this.audio.land();
       if (best.spot.type === 'skin') this.ui.toast(`🩸 ${best.spot.name}に着地！吸血開始`, 1400);
-      else this.ui.toast(`🧥 ${best.spot.name}に隠れた（安全）`, 1400);
+      else { this.ui.toast(`🧥 ${best.spot.name}に隠れた（安全）`, 1400); this.hides++; }
       return true;
     }
     // 2) furniture / wall rest surfaces
@@ -366,6 +538,7 @@ class Game {
         this.audio.land();
         const label = { floor:'床', ceiling:'天井', wall:'壁', furniture:'家具', plant:'観葉植物' }[rs.type] || '物陰';
         this.ui.toast(`🛬 ${label}で休憩（スタミナ回復）`, 1200);
+        if (rs.type !== 'floor') this.hides++;
         return true;
       }
     }
@@ -521,4 +694,15 @@ class Game {
   }
 }
 
-window.addEventListener('load', () => { new Game(); });
+window.addEventListener('load', () => {
+  const game = new Game();
+  window.__game = game;
+  // dev auto-start + error surfacing for automated smoke tests (?autostart=1)
+  if (new URLSearchParams(location.search).get('autostart') === '1') {
+    setTimeout(() => game.startGame(), 500);
+  }
+});
+
+window.addEventListener('error', (e) => {
+  console.error('GAME_RUNTIME_ERROR:', e.message, e.filename, e.lineno);
+});

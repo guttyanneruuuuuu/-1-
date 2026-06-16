@@ -18,9 +18,41 @@ export class UI {
       toast: document.getElementById('toast'),
       context: document.getElementById('context-hint'),
       titleHigh: document.getElementById('title-highscore'),
+      vignette: document.getElementById('fx-vignette'),
+      dmg: document.getElementById('fx-damage'),
+      feed: document.getElementById('fx-feed'),
+      missionList: document.getElementById('mission-list'),
+      missionTitle: document.querySelector('.mission-title'),
+      timeIcon: document.getElementById('time-icon'),
+      timeValue: document.getElementById('time-value'),
     };
     this._toastTimer = null;
     this._curAlert = null;
+    this._dmgTimer = null;
+  }
+
+  flashDamage() {
+    this.el.dmg.classList.remove('flash');
+    void this.el.dmg.offsetWidth;
+    this.el.dmg.classList.add('flash');
+  }
+  feedActive(v) { this.el.feed.classList.toggle('active', v); }
+  setVignetteDanger(v) { this.el.vignette.classList.toggle('danger', v); }
+  setTimeOfDay(t) {
+    // t: 0 night -> 1 day
+    const day = t > 0.66, dawn = t > 0.33;
+    this.el.timeIcon.textContent = day ? '☀️' : (dawn ? '🌅' : '🌙');
+    this.el.timeValue.textContent = day ? '朝' : (dawn ? '夜明け' : '夜');
+  }
+  setMissions(list, wave) {
+    this.el.missionTitle.textContent = `🎯 ミッション (WAVE ${wave})`;
+    this.el.missionList.innerHTML = '';
+    for (const m of list) {
+      const d = document.createElement('div');
+      d.className = 'mission-item' + (m.done ? ' done' : '');
+      d.textContent = (m.done ? '✓ ' : '・') + m.label;
+      this.el.missionList.appendChild(d);
+    }
   }
 
   showHUD(v) { this.el.hud.classList.toggle('hidden', !v); }
